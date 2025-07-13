@@ -1,6 +1,8 @@
 const Obat = require('../models/medication');
 const { query } = require('../config/database');
 const MedicationHistory = require('../models/MedicationHistory');
+const fs = require('fs'); // PERUBAHAN KAMERA
+const path = require('path'); 
 
 const TOLERANCE_MINUTES_BEFORE_MISSED = 60; // Toleransi waktu 60 menit (1 jam) setelah jadwal untuk dianggap pending/belum terlewat
 const TOLERANCE_MINUTES_AFTER_SCHEDULED = 30; // Toleransi waktu 30 menit setelah jadwal untuk dianggap tepat waktu
@@ -38,20 +40,67 @@ async function getFamilyIdByUserId(userId) {
 exports.addMedication = async (req, res) => {
     try {
         const { patientUniqueId } = req.params;
-        const { medicationName, dosage, schedule, description, photoUrl } = req.body;
 
-        if (!patientUniqueId || !medicationName || !dosage || !schedule || typeof schedule !== 'object' || !schedule.type) {
+        // Log req.body untuk debugging
+        console.log('PERBAIKI ERROR: req.body di addMedication:', req.body); // PERBAIKI ERROR
+
+        const medicationName = req.body.medicationName; // PERBAIKI ERROR
+        const dosage = req.body.dosage;                 // PERBAIKI ERROR
+        const description = req.body.description;       // PERBAIKI ERROR
+        const schedule = req.body.schedule;    
+
+        let photoUrl = null;
+        if (req.file) {
+            photoUrl = `/api/uploads/${req.file.filename}`;
+        }
+
+         let parsedSchedule;
+        try {
+            // Pastikan schedule adalah string sebelum JSON.parse
+            parsedSchedule = typeof schedule === 'string' && schedule.trim().startsWith('{') ? JSON.parse(schedule) : schedule;
+            // Jika parsedSchedule bukan objek setelah parsing (misal: null, undefined, atau tipe lain),
+            // tetapkan default agar validasi berikutnya tidak gagal.
+            if (typeof parsedSchedule !== 'object' || parsedSchedule === null) {
+                parsedSchedule = { type: 'unknown', notes: 'Invalid schedule format from client.' };
+            }
+        } catch (e) {
+            console.error('PERBAIKI ERROR: Error parsing schedule JSON:', e); // PERBAIKI ERROR
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file:', err);
+                });
+            }
+            return res.status(400).json({ message: 'Format jadwal tidak valid atau tidak ditemukan.' });
+        }
+
+        if (!patientUniqueId || !medicationName || !dosage || !parsedSchedule || typeof parsedSchedule.type === 'undefined') { // PERBAIKI ERROR: Cek .type
+            console.error('PERBAIKI ERROR: Validasi input gagal: ', { patientUniqueId, medicationName, dosage, parsedSchedule }); // PERBAIKI ERROR
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file:', err);
+                });
+            }
             return res.status(400).json({ message: 'ID Pasien, nama obat, dosis, dan jadwal (object dengan type) diperlukan.' });
         }
 
         const patientGlobalId = await getPatientGlobalIdFromUniqueId(patientUniqueId);
         if (!patientGlobalId) {
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file:', err);
+                });
+            }
             return res.status(404).json({ message: 'Pasien dengan ID unik tersebut tidak ditemukan.' });
         }
 
         const doctorUserId = req.user.id;
         const doctorGlobalId = await getDoctorIdByUserId(doctorUserId);
         if (!doctorGlobalId) {
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file:', err);
+                });
+            }
             return res.status(403).json({ message: 'Pengguna tidak dikenali sebagai dokter.' });
         }
 
@@ -60,6 +109,11 @@ exports.addMedication = async (req, res) => {
             [doctorGlobalId, patientGlobalId]
         );
         if (relation.length === 0) {
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file:', err);
+                });
+            }
             return res.status(403).json({ message: 'Dokter tidak diotorisasi untuk menambah obat bagi pasien ini.' });
         }
 
@@ -68,7 +122,7 @@ exports.addMedication = async (req, res) => {
             doctorGlobalId,
             medicationName,
             dosage,
-            schedule, 
+            parsedSchedule,
             description,
             photoUrl
         );
@@ -90,6 +144,11 @@ exports.addMedication = async (req, res) => {
         });
     } catch (error) {
         console.error('Error saat menambah obat:', error);
+        if (req.file) {
+            fs.unlink(req.file.path, (err) => {
+                if (err) console.error('Error deleting uploaded file in catch block:', err);
+            });
+        }
         res.status(500).json({ message: 'Kesalahan server saat menambah obat.' });
     }
 };
@@ -576,6 +635,7 @@ exports.getMedicationHistoryForPatient = async (req, res) => {
                 dosage: item.dosis,
                 schedule: parsedJadwal,
                 scheduledTime: item.scheduled_time,
+                photoUrl: item.foto_obat_url,
             };
         });
 
@@ -663,34 +723,94 @@ exports.getMedicationsByPatient = async (req, res) => {
 exports.updateMedication = async (req, res) => {
     try {
         const { medicationGlobalId } = req.params;
-        const { medicationName, dosage, schedule, description, photoUrl } = req.body;
+        // PERBAIKI ERROR: Akses properti req.body secara langsung atau dengan destructuring yang lebih aman
+        const medicationName = req.body.medicationName; // PERBAIKI ERROR
+        const dosage = req.body.dosage;                 // PERBAIKI ERROR
+        const description = req.body.description;       // PERBAIKI ERROR
+        const schedule = req.body.schedule;             // PERBAIKI ERROR
+        const existingPhotoUrl = req.body.photoUrl;     // PERBAIKI ERROR
+        // UNITL HERE
 
-        if (!medicationGlobalId || !medicationName || !dosage || !schedule || typeof schedule !== 'object' || !schedule.type) {
+        let newPhotoUrl = existingPhotoUrl;
+        if (req.file) {
+            newPhotoUrl = `/api/uploads/${req.file.filename}`;
+        }
+
+        // PERBAIKI ERROR: Parse schedule yang datang sebagai string JSON dari form-data
+        let parsedSchedule;
+        try {
+            parsedSchedule = typeof schedule === 'string' && schedule.trim().startsWith('{') ? JSON.parse(schedule) : schedule;
+            if (typeof parsedSchedule !== 'object' || parsedSchedule === null) {
+                parsedSchedule = { type: 'unknown', notes: 'Invalid schedule format from client.' };
+            }
+        } catch (e) {
+            console.error('PERBAIKI ERROR: Error parsing schedule JSON for update:', e); // PERBAIKI ERROR
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file on schedule parse error:', err);
+                });
+            }
+            return res.status(400).json({ message: 'Format jadwal tidak valid.' });
+        }
+        // UNITL HERE
+
+        // PERBAIKI ERROR: Pastikan semua field yang wajib ada, termasuk parsedSchedule
+        if (!medicationGlobalId || !medicationName || !dosage || !parsedSchedule || typeof parsedSchedule.type === 'undefined') { // PERBAIKI ERROR: Cek .type
+            console.error('PERBAIKI ERROR: Validasi input gagal untuk update: ', { medicationGlobalId, medicationName, dosage, parsedSchedule }); // PERBAIKI ERROR
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file on initial validation failure:', err);
+                });
+            }
             return res.status(400).json({ message: 'Nama obat, dosis, dan jadwal (object dengan type) diperlukan.' });
         }
+        // UNITL HERE
 
         const doctorUserId = req.user.id;
         const doctorGlobalId = await getDoctorIdByUserId(doctorUserId);
 
         if (!doctorGlobalId) {
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file on doctor auth failure:', err);
+                });
+            }
             return res.status(403).json({ message: 'Pengguna tidak dikenali sebagai dokter.' });
         }
 
         const existingMedication = await Obat.findById(medicationGlobalId);
 
         if (!existingMedication) {
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file on medication not found:', err);
+                });
+            }
             return res.status(404).json({ message: 'Obat tidak ditemukan.' });
         }
         if (existingMedication.id_dokter !== doctorGlobalId) {
+            if (req.file) {
+                fs.unlink(req.file.path, (err) => {
+                    if (err) console.error('Error deleting uploaded file on ownership auth failure:', err);
+                });
+            }
             return res.status(403).json({ message: 'Tidak diotorisasi: Anda hanya dapat memperbarui obat resep Anda sendiri.' });
         }
+
+        if (req.file && existingMedication.foto_obat_url) {
+            const oldImagePath = path.join(__dirname, '..', existingMedication.foto_obat_url.replace('/api/uploads', 'uploads'));
+            fs.unlink(oldImagePath, (err) => {
+                if (err) console.error('Error deleting old image file:', err);
+            });
+        }
+
         const success = await Obat.update(
             medicationGlobalId,
             medicationName,
             dosage,
-            schedule, 
+            parsedSchedule,
             description,
-            photoUrl
+            newPhotoUrl
         );
         if (success) {
             res.status(200).json({
@@ -699,9 +819,9 @@ exports.updateMedication = async (req, res) => {
                     id: medicationGlobalId,
                     medicationName: medicationName,
                     dosage: dosage,
-                    schedule: schedule, 
+                    schedule: parsedSchedule,
                     description: description,
-                    photoUrl: photoUrl,
+                    photoUrl: newPhotoUrl,
                 }
             });
         } else {
@@ -710,9 +830,15 @@ exports.updateMedication = async (req, res) => {
 
     } catch (error) {
         console.error('Error saat memperbarui obat:', error);
+        if (req.file) {
+            fs.unlink(req.file.path, (err) => {
+                if (err) console.error('Error deleting uploaded file in catch block:', err);
+            });
+        }
         res.status(500).json({ message: 'Kesalahan server saat memperbarui obat.' });
     }
 };
+
 
 
 // Hapus obat berdasarkan ID
@@ -740,6 +866,17 @@ exports.deleteMedication = async (req, res) => {
             return res.status(403).json({ message: 'Tidak diotorisasi: Anda hanya dapat menghapus obat resep Anda sendiri.' });
         }
 
+        // PERUBAHAN KAMERA: Hapus file gambar terkait sebelum menghapus record dari DB
+        if (existingMedication.foto_obat_url) { // PERUBAHAN KAMERA
+            // PERUBAHAN KAMERA: Path di database adalah /api/uploads/filename.jpg
+            // Kita perlu mengubahnya menjadi path sistem file: uploads/filename.jpg
+            const imagePathToDelete = path.join(__dirname, '..', existingMedication.foto_obat_url.replace('/api/uploads', 'uploads')); // PERUBAHAN KAMERA
+            fs.unlink(imagePathToDelete, (err) => { // PERUBAHAN KAMERA
+                if (err) console.error('Error deleting medication image file:', err); // PERUBAHAN KAMERA
+            }); // PERUBAHAN KAMERA
+        } // PERUBAHAN KAMERA
+        // SAMPAI SINI
+
         const success = await Obat.delete(medicationGlobalId);
 
         if (success) {
@@ -753,6 +890,7 @@ exports.deleteMedication = async (req, res) => {
         res.status(500).json({ message: 'Kesalahan server saat menghapus obat.' });
     }
 };
+
 
 // riwayat konsumsi untuk pasien
 //  GET /api/riwayat-konsumsi/:patientUniqueId
@@ -836,6 +974,7 @@ exports.getConsumptionHistory = async (req, res) => {
                 dosage: item.dosis,
                 schedule: parsedJadwal, 
                 scheduledTime: item.scheduled_time,
+                photoUrl: item.foto_obat_url, 
             };
         });
 

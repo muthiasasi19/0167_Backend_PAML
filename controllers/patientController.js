@@ -27,6 +27,48 @@ async function getFamilyIdByUserId(userId) {
     return null;
 }
 
+//Profil
+exports.getPatientProfile = async (req, res) => {
+    try {
+        const patientUserId = req.user.id; // ID user dari token JWT
+
+        // Dapatkan ID global pasien dari ID user dan data profil dari tabel 'pasien'
+        const patientGlobalData = await query('SELECT id, id_pasien, nama, tanggal_lahir, jenis_kelamin, nomor_telepon, alamat FROM pasien WHERE id_user = ?', [patientUserId]);
+
+        if (patientGlobalData.length === 0) {
+            return res.status(404).json({ message: 'Data profil pasien tidak ditemukan.', status: 'fail' });
+        }
+
+        const patientProfile = patientGlobalData[0];
+
+        // Ambil data username dan role dari tabel 'users' untuk kelengkapan profil
+        const userData = await query('SELECT username, role FROM users WHERE id = ?', [patientUserId]);
+        const userDetails = userData.length > 0 ? userData[0] : {};
+
+        res.status(200).json({
+            message: 'Profil pasien berhasil dimuat.',
+            status: 'success',
+            data: {
+                id: patientProfile.id, // ID global dari tabel pasien (misal: integer)
+                patientId: patientProfile.id_pasien, // ID unik dari tabel pasien (misal: PSNxxxx)
+                name: patientProfile.nama, // Dari tabel pasien
+                dateOfBirth: patientProfile.tanggal_lahir, // Dari tabel pasien
+                gender: patientProfile.jenis_kelamin, // Dari tabel pasien
+                phoneNumber: patientProfile.nomor_telepon, // Dari tabel pasien
+                address: patientProfile.alamat, // Dari tabel pasien
+                username: userDetails.username, // Dari tabel users
+                role: userDetails.role, // Dari tabel users
+                // connectedDoctorName: (ini akan diambil dari tabel pasien jika sudah di-update saat koneksi dokter)
+                // connectedDoctorId: (ini akan diambil dari tabel pasien jika sudah di-update saat koneksi dokter)
+            }
+        });
+
+    } catch (error) {
+        console.error('Error getting patient profile:', error);
+        res.status(500).json({ message: 'Terjadi kesalahan server saat memuat profil pasien.', status: 'error' });
+    }
+};
+
 
  //  Fungsi untuk mendapatkan ID Unik Pasien 
     // route   GET /api/patient/my-unique-code
@@ -284,10 +326,3 @@ async function getPatientIdByUserId(userId) {
     return null;
 }
 
-async function getFamilyIdByUserId(userId) {
-    const result = await query('SELECT id FROM keluarga WHERE id_user = ?', [userId]);
-    if (result.length > 0) {
-        return result[0].id; 
-    }
-    return null;
-}

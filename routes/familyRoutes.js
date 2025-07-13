@@ -11,6 +11,14 @@
         familyController.connectPatientToFamily
     );
 
+    //Profile keluarga
+    router.get(
+    '/profile', // Endpoint baru untuk profil keluarga
+    verifyToken,
+    authorizeRoles(['keluarga']), // Hanya role 'keluarga' yang bisa mengakses
+    familyController.getFamilyProfile // Mengarahkan ke fungsi controller yang baru ditambahkan
+);
+
     // Route untuk mendapatkan daftar pasien yang terhubung dengan keluarga
     router.get(
         '/my-connected-patients', 

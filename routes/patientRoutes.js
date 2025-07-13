@@ -11,6 +11,14 @@ router.get(
     patientController.searchConnectedPatientsByName
 );
 
+//Profile pasien
+router.get(
+    '/profile', // Endpoint baru untuk profil pasien
+    verifyToken,
+    authorizeRoles(['pasien']), // Hanya role 'pasien' yang bisa mengakses
+    patientController.getPatientProfile // Mengarahkan ke fungsi controller yang baru ditambahkan
+);
+
 // Rute untuk menghubungkan dokter dengan pasien
 router.post(
     '/doctor/connect-patient',

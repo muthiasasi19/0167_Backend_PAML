@@ -38,6 +38,8 @@ class Obat {
         const result = await query(sql, [id]);
         if (result.length > 0) {
             const medication = result[0];
+            medication.foto_obat_url = medication.foto_obat_url || null; // PERUBAHAN KAMERA
+
          
             try {
                 if (typeof medication.jadwal === 'string' && medication.jadwal.trim().startsWith('{')) {
@@ -69,6 +71,7 @@ class Obat {
                 console.error('Error parsing jadwal for medication ID:', medication.id, e);
                 medication.jadwal = { type: 'unknown', notes: String(medication.jadwal) };
             }
+            medication.foto_obat_url = medication.foto_obat_url || null;
             return medication;
         });
     }

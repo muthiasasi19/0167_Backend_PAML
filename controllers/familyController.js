@@ -22,6 +22,47 @@ async function getPatientGlobalIdFromUniqueId(patientUniqueId) {
     return result.length > 0 ? result[0].id : null;
 }
 
+//Profil
+exports.getFamilyProfile = async (req, res) => {
+    try {
+        const familyUserId = req.user.id; // ID user dari token JWT
+        
+        // Dapatkan ID global keluarga dari ID user
+        // Mengambil id, id_keluarga, nama, nomor_telepon, alamat dari tabel keluarga
+        const familyGlobalData = await query('SELECT id, id_keluarga, nama, nomor_telepon, alamat FROM keluarga WHERE id_user = ?', [familyUserId]);
+        
+        if (familyGlobalData.length === 0) {
+            return res.status(404).json({ message: 'Data profil keluarga tidak ditemukan.', status: 'fail' });
+        }
+
+        const familyProfile = familyGlobalData[0];
+
+        // Ambil data username dan role dari tabel users (ini penting untuk profil lengkap)
+        const userData = await query('SELECT username, role FROM users WHERE id = ?', [familyUserId]);
+        const userDetails = userData.length > 0 ? userData[0] : {};
+
+        res.status(200).json({
+            message: 'Profil keluarga berhasil dimuat.',
+            status: 'success',
+            data: {
+                id: familyProfile.id, // ID global dari tabel keluarga
+                id_keluarga: familyProfile.id_keluarga, // ID unik keluarga
+                username: userDetails.username, // Dari tabel users
+                role: userDetails.role, // Dari tabel users
+                nama: familyProfile.nama, // Dari tabel keluarga
+                nomor_telepon: familyProfile.nomor_telepon, // Dari tabel keluarga
+                alamat: familyProfile.alamat, // Dari tabel keluarga
+                // Tambahkan field lain dari tabel keluarga jika ada dan relevan untuk profil
+            }
+        });
+
+    } catch (error) {
+        console.error('Error getting family profile:', error);
+        res.status(500).json({ message: 'Terjadi kesalahan server saat memuat profil keluarga.', status: 'error' });
+    }
+};
+
+
 // @desc    Keluarga menghubungkan diri dengan pasien menggunakan kode unik pasien (id_pasien VARCHAR)
 // @route   POST /api/family/connect-to-patient
 // @access  Private (Keluarga saja)
