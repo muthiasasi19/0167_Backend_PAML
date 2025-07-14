@@ -1,50 +1,49 @@
-// BECKEND_ASISTENOBAT/models/NotificationSchedule.js
-
-const { query } = require('../config/database'); // Import modul query.
+const { query } = require('../config/database');
 
 class NotificationSchedule {
     /**
-     * Membuat jadwal notifikasi baru di database.
-     * @param {number} medicationGlobalId - ID global obat dari tabel `obat`.
-     * @param {number} patientGlobalId - ID global pasien dari tabel `pasien`.
-     * @param {number} doctorGlobalId - ID global dokter dari tabel `dokter`.
-     * @param {number[]} familyGlobalIds - Array berisi ID global keluarga yang akan menerima notifikasi. Akan disimpan sebagai string JSON.
-     * @param {string} scheduleTime - Waktu pengingat (format HH:MM).
-     * @param {string} startDate - Tanggal mulai pengingat (format YYYY-MM-DD).
-     * @param {string} [endDate] - Tanggal berakhir pengingat (format YYYY-MM-DD), opsional.
-     * @param {boolean} [isActive=true] - Status aktif jadwal notifikasi. Defaultnya adalah true.
+     * Membuat jadwal notifikasi baru.
+     * @param {number} medicationId - ID global obat.
+     * @param {number} patientId - ID global pasien.
+     * @param {number} doctorId - ID global dokter yang membuat jadwal.
+     * @param {string} scheduleTime - Waktu pengingat (HH:MM).
+     * @param {string} startDate - Tanggal mulai (YYYY-MM-DD).
+     * @param {string|null} endDate - Tanggal berakhir (YYYY-MM-DD), bisa null.
+     * @param {boolean} isActive - Status aktif/nonaktif.
+     * @param {Array<number>} recipientFamilyIds - Array JSON ID keluarga penerima.
+     * @returns {Promise<Object>} Data jadwal notifikasi yang baru dibuat.
      */
-    // PERUBAHAN UNTUK NOTIFIKASI: Method 'create' baru untuk model NotificationSchedule.
-    // SAMPAI SINIH
-    static async create(medicationGlobalId, patientGlobalId, doctorGlobalId, familyGlobalIds, scheduleTime, startDate, endDate, isActive = true) {
-        const familyIdsJson = familyGlobalIds && familyGlobalIds.length > 0 ? JSON.stringify(familyGlobalIds) : null; 
+    static async create(medicationId, patientId, doctorId, scheduleTime, startDate, endDate, isActive, recipientFamilyIds) {
         const sql = `
-            INSERT INTO notification_schedules (medication_id, patient_global_id, doctor_global_id, family_global_ids, schedule_time, start_date, end_date, is_active)
+             INSERT INTO notification_schedules 
+            (id, id_pasien, id_dokter, schedule_time, start_date, end_date, is_active, recipient_family_ids) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const params = [
-            medicationGlobalId,
-            patientGlobalId,
-            doctorGlobalId,
-            familyIdsJson,
+            medicationId,
+            patientId,
+            doctorId,
             scheduleTime,
             startDate,
             endDate,
-            isActive
+            isActive,
+            JSON.stringify(recipientFamilyIds) // Simpan sebagai string JSON
         ];
+
         try {
             const result = await query(sql, params);
             return {
                 id: result.insertId,
-                medicationId: medicationGlobalId,
-                patientGlobalId: patientGlobalId,
-                doctorGlobalId: doctorGlobalId,
-                familyGlobalIds: familyGlobalIds,
+                medicationId,
+                patientId,
+                doctorId,
                 scheduleTime,
                 startDate,
                 endDate,
                 isActive,
-                createdAt: new Date()
+                recipientFamilyIds,
+                createdAt: new Date(),
+                updatedAt: new Date()
             };
         } catch (error) {
             console.error('Error in NotificationSchedule.create (SQL execution):', error);
@@ -53,82 +52,199 @@ class NotificationSchedule {
     }
 
     /**
-     * Mengambil daftar jadwal notifikasi berdasarkan ID global pasien.
-     * Metode ini melakukan JOIN dengan tabel 'obat', 'pasien', dan 'dokter' untuk mendapatkan detail tambahan.
-     * @param {number} patientGlobalId - ID global pasien yang jadwalnya ingin diambil.
-     * @returns {Promise<Object[]>} Array berisi objek-objek jadwal notifikasi.
+     * Mencari jadwal notifikasi berdasarkan ID.
+     * @param {number} id - ID jadwal notifikasi.
+     * @returns {Promise<Object|null>} Jadwal notifikasi jika ditemukan, null jika tidak.
      */
-    // PERUBAHAN UNTUK NOTIFIKASI: Method 'findByPatientGlobalId' baru untuk model NotificationSchedule.
-    // SAMPAI SINIH
-    static async findByPatientGlobalId(patientGlobalId) {
-        const sql = `
-            SELECT
-                ns.id,
-                ns.medication_id AS medicationId,
-                ns.patient_global_id AS patientGlobalId,
-                ns.doctor_global_id AS doctorGlobalId,
-                ns.family_global_ids AS familyGlobalIds,
-                ns.schedule_time AS scheduleTime,
-                ns.start_date AS startDate,
-                ns.end_date AS endDate,
-                ns.is_active AS isActive,
-                ns.created_at AS createdAt,
-                o.nama_obat AS medicationName,
-                o.dosis AS medicationDosage, -- Dosis diambil langsung dari tabel obat
-                p.nama AS patientName,
-                d.nama AS doctorName
-            FROM notification_schedules ns
-            JOIN obat o ON ns.medication_id = o.id
-            JOIN pasien p ON ns.patient_global_id = p.id
-            JOIN dokter d ON ns.doctor_global_id = d.id
-            WHERE ns.patient_global_id = ?
-            ORDER BY ns.schedule_time ASC;
-        `;
-        const results = await query(sql, [patientGlobalId]);
-
-        return results.map(row => {
-            if (row.familyGlobalIds && typeof row.familyGlobalIds === 'string') {
+    static async findById(id) {
+        const sql = `SELECT * FROM notification_schedules WHERE id = ?`;
+        const result = await query(sql, [id]);
+        if (result.length > 0) {
+            const schedule = result[0];
+            // Parse recipient_family_ids kembali ke array
+            if (schedule.recipient_family_ids) {
                 try {
-                    row.familyGlobalIds = JSON.parse(row.familyGlobalIds);
+                    schedule.recipient_family_ids = JSON.parse(schedule.recipient_family_ids);
                 } catch (e) {
-                    console.error('Error parsing family_global_ids for schedule ID:', row.id, e);
-                    row.familyGlobalIds = []; 
+                    console.error('Error parsing recipient_family_ids for schedule ID:', schedule.id, e);
+                    schedule.recipient_family_ids = [];
                 }
             } else {
-                row.familyGlobalIds = []; 
+                schedule.recipient_family_ids = [];
             }
-            return row;
+            return schedule;
+        }
+        return null;
+    }
+
+    /**
+     * Mencari jadwal notifikasi untuk obat dan pasien tertentu.
+     * Digunakan oleh dokter untuk melihat dan mengelola pengingat.
+     * @param {number} medicationId - ID global obat.
+     * @param {number} patientId - ID global pasien.
+     * @returns {Promise<Array<Object>>} Daftar jadwal notifikasi.
+     */
+    static async findByMedicationAndPatient(medicationId, patientId) {
+        const sql = `
+            SELECT 
+                ns.id_notifikasi AS id,          
+                ns.id AS medication_id,   
+                ns.id_pasien AS patient_id, 
+                ns.id_dokter AS doctor_id,   
+                ns.schedule_time, 
+                ns.start_date, 
+                ns.end_date, 
+                ns.is_active, 
+                ns.recipient_family_ids, 
+                o.nama_obat, 
+                o.dosis, 
+                p.nama AS nama_pasien 
+            FROM notification_schedules ns
+            JOIN obat o ON ns.id = o.id -- PERBAIKAN: Ubah 'ns.id_medication' menjadi 'ns.id' di JOIN
+            JOIN pasien p ON ns.id_pasien = p.id -- Pastikan ini juga menggunakan id_pasien
+            WHERE ns.id = ? AND ns.id_pasien = ? -- PERBAIKAN: Ubah 'ns.id_medication' menjadi 'ns.id' di WHERE
+            ORDER BY ns.schedule_time ASC
+        `;
+        const results = await query(sql, [medicationId, patientId]);
+        
+        return results.map(schedule => {
+            if (schedule.recipient_family_ids) {
+                try {
+                    schedule.recipient_family_ids = JSON.parse(schedule.recipient_family_ids);
+                } catch (e) {
+                    console.error('Error parsing recipient_family_ids for schedule ID:', schedule.id, e);
+                    schedule.recipient_family_ids = [];
+                }
+            } else {
+                schedule.recipient_family_ids = [];
+            }
+            return schedule;
         });
     }
 
     /**
-     * Memperbarui informasi jadwal notifikasi berdasarkan ID.
-     * Hanya kolom yang relevan dengan pengingat yang dapat diupdate (waktu, tanggal, status aktif).
-     * @param {number} id - ID jadwal notifikasi yang akan diperbarui.
-     * @param {Object} updates - Objek yang berisi kunci-nilai kolom yang akan diupdate.
+     * Mencari semua jadwal notifikasi yang relevan untuk pengguna (pasien/keluarga).
+     * @param {number} userId - ID global pengguna (pasien atau keluarga).
+     * @param {string} userRole - Peran pengguna ('pasien' atau 'keluarga').
+     * @returns {Promise<Array<Object>>} Daftar jadwal notifikasi.
      */
-    // PERUBAHAN UNTUK NOTIFIKASI: Method 'update' baru untuk model NotificationSchedule.
-    // SAMPAI SINIH
+    static async findAllRelevantToUser(userId, userRole) {
+        let sql;
+        let params;
+
+         if (userRole === 'pasien') {
+            sql = `
+                SELECT 
+                    ns.id_notifikasi AS notification_id, -- PERBAIKAN: Aliaskan id_notifikasi ke 'notification_id'
+                    ns.id AS medication_id,   
+                    ns.id_pasien AS patient_id, 
+                    ns.id_dokter AS doctor_id,   
+                    ns.schedule_time, 
+                    ns.start_date, 
+                    ns.end_date, 
+                    ns.is_active, 
+                    ns.recipient_family_ids, 
+                    o.nama_obat AS medication_name,
+                    o.dosis AS medication_dosage,
+                    o.foto_obat_url AS medication_photo_url,
+                    p.nama AS patient_name,
+                    p.id_pasien AS patient_unique_id
+                FROM notification_schedules ns
+                JOIN pasien pat ON ns.id_pasien = pat.id 
+                JOIN obat o ON ns.id = o.id -- PERBAIKAN: Ubah 'ns.id_medication' menjadi 'ns.id'
+                JOIN pasien p ON ns.id_pasien = p.id 
+                WHERE pat.id_user = ? AND ns.is_active = TRUE
+                AND CURDATE() BETWEEN ns.start_date AND COALESCE(ns.end_date, '2099-12-31')
+                ORDER BY ns.schedule_time ASC;
+            `;
+            params = [userId];
+        } else if (userRole === 'keluarga') {
+            sql = `
+                SELECT 
+                    ns.id_notifikasi AS notification_id, 
+                    ns.id AS medication_id,
+                    ns.patient_id,
+                    ns.doctor_id,
+                    ns.schedule_time,
+                    ns.start_date,
+                    ns.end_date,
+                    ns.is_active,
+                    ns.recipient_family_ids,
+                    o.nama_obat AS medication_name,
+                    o.dosis AS medication_dosage,
+                    o.foto_obat_url AS medication_photo_url,
+                    p.nama AS patient_name,
+                    p.id_pasien AS patient_unique_id
+                FROM notification_schedules ns
+                JOIN keluarga k ON k.id_user = ?
+                JOIN relasi_pasien_keluarga rpk ON rpk.id_keluarga = k.id
+                JOIN pasien pat ON ns.id_pasien = pat.id 
+                JOIN obat o ON ns.id = o.id 
+                JOIN pasien p ON ns.id_pasien = p.id 
+                WHERE rpk.id_pasien = ns.id_pasien AND ns.is_active = TRUE 
+                AND JSON_CONTAINS(ns.recipient_family_ids, CAST(k.id AS JSON), '$')
+                AND CURDATE() BETWEEN ns.start_date AND COALESCE(ns.end_date, '2099-12-31')
+                ORDER BY ns.schedule_time ASC;
+            `;
+            params = [userId];
+        } else {
+            // Peran tidak diizinkan untuk melihat notifikasi
+            return [];
+        }
+
+        try {
+            const results = await query(sql, params);
+            return results.map(schedule => {
+                if (schedule.recipient_family_ids) {
+                    try {
+                        schedule.recipient_family_ids = JSON.parse(schedule.recipient_family_ids);
+                    } catch (e) {
+                        console.error('Error parsing recipient_family_ids for schedule ID:', schedule.notification_id, e);
+                        schedule.recipient_family_ids = [];
+                    }
+                } else {
+                    schedule.recipient_family_ids = [];
+                }
+                return schedule;
+            });
+        } catch (error) {
+            console.error('Error in NotificationSchedule.findAllRelevantToUser (SQL execution):', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Memperbarui jadwal notifikasi.
+     * @param {number} id - ID jadwal notifikasi.
+     * @param {Object} updates - Objek berisi kolom yang akan diperbarui.
+     * @returns {Promise<boolean>} True jika berhasil diperbarui, false jika tidak.
+     */
     static async update(id, updates) {
-        let sqlParts = [];
-        let params = [];
+        const setClauses = [];
+        const params = [];
+
         for (const key in updates) {
             if (updates.hasOwnProperty(key)) {
-                const dbColumnName = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-                if (['start_date', 'end_date'].includes(dbColumnName) && updates[key] instanceof Date) {
-                    sqlParts.push(`${dbColumnName} = ?`);
-                    params.push(updates[key].toISOString().split('T')[0]);
+                let dbColumnName = key;
+                if (key === 'medicationId') {
+                     dbColumnName = 'id';
                 }
-                else if (dbColumnName !== 'medication_id' && dbColumnName !== 'patient_global_id' && dbColumnName !== 'doctor_global_id' && dbColumnName !== 'family_global_ids') { 
-                    sqlParts.push(`${dbColumnName} = ?`);
+                
+                setClauses.push(`${dbColumnName} = ?`);
+                if (key === 'recipient_family_ids' && Array.isArray(updates[key])) {
+                    params.push(JSON.stringify(updates[key])); // Stringify array JSON
+                } else {
                     params.push(updates[key]);
                 }
             }
         }
-        if (sqlParts.length === 0) return false;
+        params.push(id); // ID untuk klausa WHERE
 
-        const sql = `UPDATE notification_schedules SET ${sqlParts.join(', ')} WHERE id = ?`;
-        params.push(id);
+        if (setClauses.length === 0) {
+            return false; // Tidak ada yang diperbarui
+        }
+
+        const sql = `UPDATE notification_schedules SET ${setClauses.join(', ')} WHERE id = ?`;
 
         try {
             const result = await query(sql, params);
@@ -140,119 +256,14 @@ class NotificationSchedule {
     }
 
     /**
-     * Menghapus jadwal notifikasi dari database.
-     * @param {number} id - ID jadwal notifikasi yang akan dihapus.
+     * Menghapus jadwal notifikasi.
+     * @param {number} id - ID jadwal notifikasi.
+     * @returns {Promise<boolean>} True jika berhasil dihapus, false jika tidak.
      */
-    // PERUBAHAN UNTUK NOTIFIKASI: Method 'delete' baru untuk model NotificationSchedule.
-    // SAMPAI SINIH
     static async delete(id) {
         const sql = `DELETE FROM notification_schedules WHERE id = ?`;
-        try {
-            const result = await query(sql, [id]);
-            return result.affectedRows > 0;
-        } catch (error) {
-            console.error('Error in NotificationSchedule.delete (SQL execution):', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Mencari satu jadwal notifikasi berdasarkan ID-nya.
-     * Melakukan JOIN untuk mendapatkan detail obat, pasien, dan dokter terkait.
-     * @param {number} id - ID jadwal notifikasi yang akan dicari.
-     * @returns {Promise<Object|null>} Objek jadwal notifikasi jika ditemukan, null jika tidak.
-     */
-    // PERUBAHAN UNTUK NOTIFIKASI: Method 'findById' baru untuk model NotificationSchedule.
-    // SAMPAI SINIH
-    static async findById(id) {
-        const sql = `
-            SELECT
-                ns.id,
-                ns.medication_id AS medicationId,
-                ns.patient_global_id AS patientGlobalId,
-                ns.doctor_global_id AS doctorGlobalId,
-                ns.family_global_ids AS familyGlobalIds,
-                ns.schedule_time AS scheduleTime,
-                ns.start_date AS startDate,
-                ns.end_date AS endDate,
-                ns.is_active AS isActive,
-                ns.created_at AS createdAt,
-                o.nama_obat AS medicationName,
-                o.dosis AS medicationDosage,
-                p.nama AS patientName,
-                d.nama AS doctorName
-            FROM notification_schedules ns
-            JOIN obat o ON ns.medication_id = o.id
-            JOIN pasien p ON ns.patient_global_id = p.id
-            JOIN dokter d ON ns.doctor_global_id = d.id
-            WHERE ns.id = ?;
-        `;
         const result = await query(sql, [id]);
-        if (result.length > 0) {
-            const row = result[0];
-            if (row.familyGlobalIds && typeof row.familyGlobalIds === 'string') {
-                try {
-                    row.familyGlobalIds = JSON.parse(row.familyGlobalIds);
-                } catch (e) {
-                    console.error('Error parsing family_global_ids for schedule ID:', row.id, e);
-                    row.familyGlobalIds = [];
-                }
-            } else {
-                row.familyGlobalIds = [];
-            }
-            return row;
-        }
-        return null;
-    }
-
-    /**
-     * Mencari semua jadwal notifikasi yang terkait dengan obat dan pasien tertentu.
-     * Ini akan digunakan di halaman Pengaturan Notifikasi Obat (NotificationPage) untuk menampilkan pengingat spesifik.
-     * @param {number} medicationId - ID global obat.
-     * @param {number} patientGlobalId - ID global pasien.
-     * @returns {Promise<Object[]>} Array berisi objek-objek jadwal notifikasi.
-     */
-    // PERUBAHAN UNTUK NOTIFIKASI: Method 'findByMedicationAndPatientGlobalId' baru untuk model NotificationSchedule.
-    // SAMPAI SINIH
-    static async findByMedicationAndPatientGlobalId(medicationId, patientGlobalId) {
-        const sql = `
-            SELECT
-                ns.id,
-                ns.medication_id AS medicationId,
-                ns.patient_global_id AS patientGlobalId,
-                ns.doctor_global_id AS doctorGlobalId,
-                ns.family_global_ids AS familyGlobalIds,
-                ns.schedule_time AS scheduleTime,
-                ns.start_date AS startDate,
-                ns.end_date AS endDate,
-                ns.is_active AS isActive,
-                ns.created_at AS createdAt,
-                o.nama_obat AS medicationName,
-                o.dosis AS medicationDosage,
-                p.nama AS patientName,
-                d.nama AS doctorName
-            FROM notification_schedules ns
-            JOIN obat o ON ns.medication_id = o.id
-            JOIN pasien p ON ns.patient_global_id = p.id
-            JOIN dokter d ON ns.doctor_global_id = d.id
-            WHERE ns.medication_id = ? AND ns.patient_global_id = ?
-            ORDER BY ns.schedule_time ASC;
-        `;
-        const results = await query(sql, [medicationId, patientGlobalId]);
-
-        return results.map(row => {
-            if (row.familyGlobalIds && typeof row.familyGlobalIds === 'string') {
-                try {
-                    row.familyGlobalIds = JSON.parse(row.familyGlobalIds);
-                } catch (e) {
-                    console.error('Error parsing family_global_ids for schedule ID:', row.id, e);
-                    row.familyGlobalIds = [];
-                }
-            } else {
-                row.familyGlobalIds = [];
-            }
-            return row;
-        });
+        return result.affectedRows > 0;
     }
 }
 

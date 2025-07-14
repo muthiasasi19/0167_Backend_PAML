@@ -9,14 +9,16 @@ const obatRoutes = require('./routes/medicationRoutes');
 const cors = require('cors');
 const patientRoutes = require('./routes/patientRoutes'); 
 const familyRoutes = require('./routes/familyRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const path = require('path');
+
 
 // Middleware
 app.use(cors()); 
 app.use(express.json()); // Untuk parsing JSON body
 app.use(express.urlencoded({ extended: true })); 
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads'))); // PERUBAHAN KAMERA
-
+app.use('/api/notifications', notificationRoutes);
 
 // Fungsi asynchronous untuk menguji koneksi database dan memulai server
 async function startServer() {

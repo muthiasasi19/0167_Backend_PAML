@@ -43,4 +43,10 @@ router.get(
     patientController.getConnectedDoctorForPatient
 );
 
+router.post(
+    '/patient/location',
+    verifyToken,
+    authorizeRoles(['pasien']),
+    patientController.updatePatientLocation
+);
 module.exports = router;

@@ -1,4 +1,6 @@
 const { query } = require('../config/database');
+const PatientLocation = require('../models/PatientLocation'); 
+
 const isValidPatientId = (id) => {
     return typeof id === 'string' && id.startsWith('PSN') && id.length > 10;
 };
@@ -326,3 +328,34 @@ async function getPatientIdByUserId(userId) {
     return null;
 }
 
+// FITUR MAPS: Fungsi untuk pasien mengirimkan lokasi terkini mereka
+// @route   POST /api/patient/location
+// @access  Private (Pasien saja)
+exports.updatePatientLocation = async (req, res) => {
+    const { latitude, longitude } = req.body;
+    const patientUserId = req.user.id; // ID user dari token JWT
+
+    // Validasi input
+    if (latitude === undefined || longitude === undefined) {
+        return res.status(400).json({ message: 'Latitude dan Longitude wajib diisi.' });
+    }
+
+    try {
+        const patientGlobalId = await getPatientIdByUserId(patientUserId);
+        if (!patientGlobalId) {
+            return res.status(403).json({ message: 'Pengguna tidak dikenali sebagai pasien.' });
+        }
+
+        // Panggil model PatientLocation untuk menyimpan/memperbarui lokasi
+        const result = await PatientLocation.create(patientGlobalId, latitude, longitude);
+
+        res.status(200).json({
+            message: 'Lokasi pasien berhasil diperbarui.',
+            data: result
+        });
+
+    } catch (error) {
+        console.error('FITUR MAPS: Error updating patient location:', error);
+        res.status(500).json({ message: 'Terjadi kesalahan server saat memperbarui lokasi pasien.' });
+    }
+};
