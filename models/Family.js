@@ -58,6 +58,23 @@ class Keluarga {
         }
     }
 
+    //notifikasi
+    /**
+     * Mencari data keluarga berdasarkan ID user (dari tabel 'users').
+     * @param {number} userId - ID user dari tabel 'users'.
+     * @returns {Promise<Object|null>} Data keluarga jika ditemukan, null jika tidak.
+     */
+    static async findByUserId(userId) {
+        const sql = `SELECT * FROM keluarga WHERE id_user = ?`;
+        try {
+            const result = await query(sql, [userId]);
+            return result[0];
+        } catch (error) {
+            console.error('Error finding keluarga by user ID:', error.message);
+            throw error;
+        }
+    }
+
 }
 
 module.exports = Keluarga;

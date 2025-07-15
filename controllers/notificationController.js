@@ -1,7 +1,8 @@
 const NotificationSchedule = require('../models/NotificationSchedule');
 const { query } = require('../config/database');
-const Obat = require('../models/medication'); // Untuk mendapatkan detail obat jika diperlukan
-
+const Obat = require('../models/medication');
+const Patient = require('../models/Patient'); // Import model Patient yang baru
+const Keluarga = require('../models/Family');
 // Fungsi helper dari medicationController (diulang di sini agar notificationController mandiri)
 async function getPatientGlobalIdFromUniqueId(patientUniqueId) {
     const result = await query('SELECT id FROM pasien WHERE id_pasien = ?', [patientUniqueId]);
@@ -21,6 +22,17 @@ async function getFamilyIdByUserId(userId) {
     const result = await query('SELECT id FROM keluarga WHERE id_user = ?', [userId]);
     if (result.length > 0) { return result[0].id; }
     return null;
+}
+
+//notifikasi
+async function getPatientIdByUserId(userId) {
+    const patient = await Patient.findByUserId(userId);
+    return patient ? patient.id : null;
+}
+
+async function getFamilyIdByUserId(userId) {
+    const family = await Keluarga.findByUserId(userId); // Menggunakan fungsi findByUserId dari model Keluarga
+    return family ? family.id : null;
 }
 
 // Untuk mengambil semua keluarga yang terhubung dengan pasien
@@ -103,7 +115,8 @@ exports.updateNotificationSchedule = async (req, res) => {
         if (!existingSchedule) {
             return res.status(404).json({ message: 'Jadwal notifikasi tidak ditemukan.' });
         }
-        if (existingSchedule.doctor_id !== doctorGlobalId) {
+        console.warn(`[DEBUG_AUTH] Update: Comparing existingSchedule.id_dokter (${existingSchedule.id_dokter}, type: ${typeof existingSchedule.id_dokter}) with doctorGlobalId (${doctorGlobalId}, type: ${typeof doctorGlobalId})`);
+        if (Number(existingSchedule.id_dokter) !== Number(doctorGlobalId)) {
             return res.status(403).json({ message: 'Tidak diotorisasi: Anda hanya dapat memperbarui jadwal pengingat Anda sendiri.' });
         }
 
@@ -189,7 +202,7 @@ exports.getNotificationSchedulesForUser = async (req, res) => {
             return res.status(404).json({ message: `ID ${loggedInUser.role} tidak ditemukan.` });
         }
 
-        const schedules = await NotificationSchedule.findAllRelevantToUser(loggedInUser.id, loggedInUser.role);
+        const schedules = await NotificationSchedule.findAllRelevantToUser(globalId, loggedInUser.role);
 
         res.status(200).json({
             message: 'Jadwal notifikasi relevan berhasil dimuat.',
@@ -219,7 +232,8 @@ exports.deleteNotificationSchedule = async (req, res) => {
         if (!existingSchedule) {
             return res.status(404).json({ message: 'Jadwal notifikasi tidak ditemukan.' });
         }
-        if (existingSchedule.doctor_id !== doctorGlobalId) {
+        console.warn(`[DEBUG_AUTH] Delete: Comparing existingSchedule.id_dokter (${existingSchedule.id_dokter}, type: ${typeof existingSchedule.id_dokter}) with doctorGlobalId (${doctorGlobalId}, type: ${typeof doctorGlobalId})`);
+        if (Number(existingSchedule.id_dokter) !== Number(doctorGlobalId)) {
             return res.status(403).json({ message: 'Tidak diotorisasi: Anda hanya dapat menghapus jadwal pengingat Anda sendiri.' });
         }
 

@@ -15,7 +15,7 @@ class NotificationSchedule {
      */
     static async create(medicationId, patientId, doctorId, scheduleTime, startDate, endDate, isActive, recipientFamilyIds) {
         const sql = `
-             INSERT INTO notification_schedules 
+            INSERT INTO notification_schedules 
             (id, id_pasien, id_dokter, schedule_time, start_date, end_date, is_active, recipient_family_ids) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
@@ -26,7 +26,7 @@ class NotificationSchedule {
             scheduleTime,
             startDate,
             endDate,
-            isActive,
+            isActive ? 1 : 0,
             JSON.stringify(recipientFamilyIds) // Simpan sebagai string JSON
         ];
 
@@ -57,7 +57,7 @@ class NotificationSchedule {
      * @returns {Promise<Object|null>} Jadwal notifikasi jika ditemukan, null jika tidak.
      */
     static async findById(id) {
-        const sql = `SELECT * FROM notification_schedules WHERE id = ?`;
+        const sql = `SELECT * FROM notification_schedules WHERE id_notifikasi = ?`; // Memperbaiki nama kolom
         const result = await query(sql, [id]);
         if (result.length > 0) {
             const schedule = result[0];
@@ -66,12 +66,13 @@ class NotificationSchedule {
                 try {
                     schedule.recipient_family_ids = JSON.parse(schedule.recipient_family_ids);
                 } catch (e) {
-                    console.error('Error parsing recipient_family_ids for schedule ID:', schedule.id, e);
+                    console.error('Error parsing recipient_family_ids for schedule ID:', schedule.id_notifikasi, e); // Menggunakan id_notifikasi
                     schedule.recipient_family_ids = [];
                 }
             } else {
                 schedule.recipient_family_ids = [];
             }
+            schedule.is_active = schedule.is_active === 1;
             return schedule;
         }
         return null;
@@ -100,10 +101,9 @@ class NotificationSchedule {
                 o.dosis, 
                 p.nama AS nama_pasien 
             FROM notification_schedules ns
-            JOIN obat o ON ns.id = o.id -- PERBAIKAN: Ubah 'ns.id_medication' menjadi 'ns.id' di JOIN
-            JOIN pasien p ON ns.id_pasien = p.id -- Pastikan ini juga menggunakan id_pasien
-            WHERE ns.id = ? AND ns.id_pasien = ? -- PERBAIKAN: Ubah 'ns.id_medication' menjadi 'ns.id' di WHERE
-            ORDER BY ns.schedule_time ASC
+            JOIN obat o ON ns.id = o.id 
+            JOIN pasien p ON ns.id_pasien = p.id 
+            WHERE ns.id = ? AND ns.id_pasien = ?
         `;
         const results = await query(sql, [medicationId, patientId]);
         
@@ -118,6 +118,7 @@ class NotificationSchedule {
             } else {
                 schedule.recipient_family_ids = [];
             }
+            schedule.is_active = schedule.is_active === 1;
             return schedule;
         });
     }
@@ -157,7 +158,7 @@ class NotificationSchedule {
                 AND CURDATE() BETWEEN ns.start_date AND COALESCE(ns.end_date, '2099-12-31')
                 ORDER BY ns.schedule_time ASC;
             `;
-            params = [userId];
+            params = [globalId];
         } else if (userRole === 'keluarga') {
             sql = `
                 SELECT 
@@ -186,7 +187,7 @@ class NotificationSchedule {
                 AND CURDATE() BETWEEN ns.start_date AND COALESCE(ns.end_date, '2099-12-31')
                 ORDER BY ns.schedule_time ASC;
             `;
-            params = [userId];
+            params = [globalId, JSON.stringify(globalId)];
         } else {
             // Peran tidak diizinkan untuk melihat notifikasi
             return [];
@@ -203,8 +204,9 @@ class NotificationSchedule {
                         schedule.recipient_family_ids = [];
                     }
                 } else {
-                    schedule.recipient_family_ids = [];
+                schedule.is_active = schedule.is_active === 1;
                 }
+                schedule.is_active = schedule.is_active === 1;
                 return schedule;
             });
         } catch (error) {
@@ -220,40 +222,56 @@ class NotificationSchedule {
      * @returns {Promise<boolean>} True jika berhasil diperbarui, false jika tidak.
      */
     static async update(id, updates) {
-        const setClauses = [];
-        const params = [];
+    const setClauses = [];
+    const params = [];
 
-        for (const key in updates) {
-            if (updates.hasOwnProperty(key)) {
-                let dbColumnName = key;
-                if (key === 'medicationId') {
-                     dbColumnName = 'id';
-                }
-                
-                setClauses.push(`${dbColumnName} = ?`);
-                if (key === 'recipient_family_ids' && Array.isArray(updates[key])) {
-                    params.push(JSON.stringify(updates[key])); // Stringify array JSON
-                } else {
-                    params.push(updates[key]);
-                }
+    for (const key in updates) {
+        if (updates.hasOwnProperty(key)) {
+            let dbColumnName = key;
+            if (key === 'medicationId') {
+                 dbColumnName = 'id'; 
+            } else if (key === 'patientGlobalId') {
+                 dbColumnName = 'id_pasien';
+            } else if (key === 'doctorId') {
+                 dbColumnName = 'id_dokter';
+            } else if (key === 'scheduleTime') {
+                 dbColumnName = 'schedule_time';
+            } else if (key === 'startDate') {
+                 dbColumnName = 'start_date';
+            } else if (key === 'endDate') {
+                 dbColumnName = 'end_date';
+            } else if (key === 'isActive') {
+                 dbColumnName = 'is_active';
+            } else if (key === 'recipientFamilyIds') {
+                 dbColumnName = 'recipient_family_ids';
+            }
+
+            setClauses.push(`${dbColumnName} = ?`);
+            if (key === 'isActive' && typeof updates[key] === 'boolean') {
+                params.push(updates[key] ? 1 : 0); // Konversi boolean ke 0/1
+            } else if (key === 'recipientFamilyIds' && Array.isArray(updates[key])) {
+                params.push(JSON.stringify(updates[key])); // Stringify array JSON
+            } else {
+                params.push(updates[key]);
             }
         }
-        params.push(id); // ID untuk klausa WHERE
-
-        if (setClauses.length === 0) {
-            return false; // Tidak ada yang diperbarui
-        }
-
-        const sql = `UPDATE notification_schedules SET ${setClauses.join(', ')} WHERE id = ?`;
-
-        try {
-            const result = await query(sql, params);
-            return result.affectedRows > 0;
-        } catch (error) {
-            console.error('Error in NotificationSchedule.update (SQL execution):', error);
-            throw error;
-        }
     }
+    // ID untuk klausa WHERE harus id_notifikasi
+    params.push(id); 
+
+    if (setClauses.length === 0) {
+        return false; 
+    }
+    const sql = `UPDATE notification_schedules SET ${setClauses.join(', ')} WHERE id_notifikasi = ?`; // Ubah 'id' menjadi 'id_notifikasi'
+
+    try {
+        const result = await query(sql, params);
+        return result.affectedRows > 0;
+    } catch (error) {
+        console.error('Error in NotificationSchedule.update (SQL execution):', error);
+        throw error;
+    }
+}
 
     /**
      * Menghapus jadwal notifikasi.
@@ -261,7 +279,7 @@ class NotificationSchedule {
      * @returns {Promise<boolean>} True jika berhasil dihapus, false jika tidak.
      */
     static async delete(id) {
-        const sql = `DELETE FROM notification_schedules WHERE id = ?`;
+        const sql = `DELETE FROM notification_schedules WHERE id_notifikasi  = ?`;
         const result = await query(sql, [id]);
         return result.affectedRows > 0;
     }
